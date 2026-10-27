@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "智慧树视频助手",
-  "version": "0.1.7",
-  "description": "视频自动播放、播完切换下一节，以及可选的弹窗随机作答。",
+  "version": "0.1.8",
+  "description": "视频自动播放、选择最高倍速、播完切换下一节，以及可选的弹窗随机作答。",
   "permissions": ["storage", "activeTab"],
   "background": { "service_worker": "background.js" },
   "action": {

@@ -1,6 +1,6 @@
 {
   "name": "zhihuishu-video-helper",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "description": "智慧树视频页面操作助手",
   "scripts": {

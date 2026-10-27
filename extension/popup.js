@@ -2,7 +2,7 @@
   "use strict";
   const core = globalThis.ZhsHelperCore;
   const storageKey = "zhsHelperSettings";
-  const keys = ["enabled", "autoPlay", "autoNext", "randomAnswer", "muted"];
+  const keys = ["enabled", "autoPlay", "autoNext", "fastestSpeed", "randomAnswer", "muted"];
   const selectorKeys = Object.keys(core.defaults.selectors);
   const byId = id => document.getElementById(id);
   let activeTab;
@@ -18,6 +18,7 @@
       const frames = result?.frames?.find(frame => frame.blockingDialog) || result?.frames?.[0];
       if (!frames) throw new Error("No active frames");
       byId("status").textContent = `[${frames.frame}] ${frames.status}`;
+      if (frames.settings.enabled && frames.settings.fastestSpeed && frames.speedStatus) byId("status").textContent += `；${frames.speedStatus}`;
       byId("badge").textContent = frames.settings.enabled ? "运行中" : "已暂停";
       const list = byId("logs");
       list.replaceChildren(...frames.logs.map(item => {

@@ -17,6 +17,8 @@
   let catalogueExpandAttempts = 0;
   let lastPlayAttempt = 0;
   let autoplayBlocked = false;
+  let speedAttempt = null;
+  let speedStatus = "";
   let quizStates = new WeakMap();
   let seenDialogs = new Set();
   let pendingConfirmation = null;
@@ -64,7 +66,7 @@
     if (status !== message) { status = message; render(); }
   }
   function snapshot() {
-    return { settings, status, error: errorText, hasVideo: !!currentVideo, blockingDialog: core.dialogs(document, settings).length > 0, logs: [...logs], frame: window === window.top ? "主页面" : "播放器框架" };
+    return { settings, status, speedStatus, playbackRate: currentVideo?.playbackRate, error: errorText, hasVideo: !!currentVideo, blockingDialog: core.dialogs(document, settings).length > 0, logs: [...logs], frame: window === window.top ? "主页面" : "播放器框架" };
   }
   function mountPanel() {
     // Frames run the same automation; only the top-level page displays a panel.
@@ -84,7 +86,9 @@
       <p id="status" role="status"></p><p class="error" id="error"></p><button id="toggle">启动助手</button><button id="reload" hidden>刷新课程页面</button>
       <label><input type="checkbox" id="autoPlay">自动播放／暂停后续播</label>
       <label><input type="checkbox" id="autoNext">播完切换下一节</label>
+      <label><input type="checkbox" id="fastestSpeed">自动选择最高倍速</label>
       <label><input type="checkbox" id="randomAnswer">弹窗随机作答</label>
+      <small id="speedStatus" hidden></small>
       <small id="lastLog"></small><small id="version" hidden></small><small>更多设置：点击浏览器工具栏的插件图标。</small>
     </main></section>`;
     document.body.append(host);
@@ -110,7 +114,7 @@
       void save({ enabled });
     });
     shadow.getElementById("reload").addEventListener("click", () => location.reload());
-    for (const key of ["autoPlay", "autoNext", "randomAnswer"]) {
+    for (const key of ["autoPlay", "autoNext", "fastestSpeed", "randomAnswer"]) {
       shadow.getElementById(key).addEventListener("change", event => { void save({ [key]: event.target.checked }); });
     }
     render();
@@ -122,10 +126,12 @@
     panel.getElementById("toggle").textContent = contextLost ? "等待刷新" : settings.enabled ? "暂停助手" : "启动助手";
     panel.getElementById("toggle").disabled = contextLost;
     panel.getElementById("reload").hidden = !contextLost;
-    for (const key of ["autoPlay", "autoNext", "randomAnswer"]) {
+    for (const key of ["autoPlay", "autoNext", "fastestSpeed", "randomAnswer"]) {
       panel.getElementById(key).checked = settings[key];
       panel.getElementById(key).disabled = contextLost;
     }
+    panel.getElementById("speedStatus").textContent = speedStatus;
+    panel.getElementById("speedStatus").hidden = !settings.enabled || !settings.fastestSpeed || !speedStatus;
     panel.getElementById("lastLog").textContent = logs[0] ? `${logs[0].time} · ${logs[0].message}` : "等待启动";
   }
   async function save(patch) {
@@ -146,6 +152,10 @@
     settings = core.normalizeSettings(raw);
     autoplayBlocked = false;
     errorText = "";
+    if (previous.enabled !== settings.enabled || previous.fastestSpeed !== settings.fastestSpeed) {
+      speedAttempt = null;
+      speedStatus = "";
+    }
     if (!settings.enabled || !previous.enabled || JSON.stringify(previous.selectors) !== JSON.stringify(settings.selectors)) {
       resetQuizFlow();
       nextAttempts = 0;
@@ -172,6 +182,8 @@
     catalogueExpandAt = 0;
     lastPlayAttempt = 0;
     autoplayBlocked = false;
+    speedAttempt = null;
+    speedStatus = "";
     if (!preserveQuizFlow) resetQuizFlow();
     if (video) log("已识别视频播放器");
   }
@@ -273,6 +285,28 @@
       }
     }
   }
+  function handleSpeed(video) {
+    if (!settings.fastestSpeed) return;
+    const update = message => { if (speedStatus !== message) { speedStatus = message; render(); } };
+    const action = core.fastestSpeed(video);
+    if (!action) { update("未识别到可用的倍速菜单，保留当前速度"); return; }
+    if (!speedAttempt || speedAttempt.rate !== action.rate) {
+      speedAttempt = { ...action, attempts: 0, due: 0 };
+    }
+    if (Math.abs(video.playbackRate - action.rate) < 0.001) {
+      const message = `已选择最高倍速 ${action.rate}×`;
+      if (speedStatus !== message) log(message);
+      update(message);
+      speedAttempt.attempts = 0;
+      return;
+    }
+    if (speedAttempt.attempts >= 3) { update("最高倍速未生效，已停止重试，请手动选择"); return; }
+    if (now() < speedAttempt.due) return;
+    speedAttempt.attempts += 1;
+    speedAttempt.due = now() + Math.max(4000, settings.actionDelay);
+    core.selectSpeed(video, action);
+    update(`已请求最高倍速 ${action.rate}×，等待播放器确认`);
+  }
   async function tick() {
     if (!ensureContext() || !ready || running) return;
     running = true;
@@ -345,6 +379,7 @@
       pendingNext = null;
       catalogueExpandAttempts = 0;
       catalogueExpandAt = 0;
+      handleSpeed(video);
       if (!video.paused) {
         autoplayBlocked = false;
         setStatus("视频播放中");

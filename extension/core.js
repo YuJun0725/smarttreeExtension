@@ -5,6 +5,7 @@
     enabled: false,
     autoPlay: true,
     autoNext: true,
+    fastestSpeed: true,
     randomAnswer: false,
     muted: false,
     actionDelay: 1500,
@@ -12,7 +13,7 @@
   });
   function normalizeSettings(raw = {}) {
     const result = { ...defaults, selectors: { ...defaults.selectors } };
-    for (const key of ["enabled", "autoPlay", "autoNext", "randomAnswer", "muted"]) {
+    for (const key of ["enabled", "autoPlay", "autoNext", "fastestSpeed", "randomAnswer", "muted"]) {
       if (typeof raw[key] === "boolean") result[key] = raw[key];
     }
     result.actionDelay = Math.min(10000, Math.max(500, Number(raw.actionDelay) || defaults.actionDelay));
@@ -48,6 +49,34 @@
   function video(root, settings) {
     return nodes(root, "video", settings).filter(node => node.tagName === "VIDEO" && visible(node))
       .sort((a, b) => (b.clientWidth * b.clientHeight) - (a.clientWidth * a.clientHeight))[0] || null;
+  }
+  function fastestSpeed(video) {
+    // AblePlayer wraps its Video.js element and its own controls separately.
+    const player = video.closest(".able-player-container") || video.closest(".video-js");
+    if (!player) return null;
+    const disabled = node => node.matches(":disabled, .disabled, .is-disabled, [aria-disabled='true']");
+    const candidates = query(player, ".speedBox .speedList > [rate], .vjs-playback-rate .vjs-menu-item").filter(node => {
+      const control = node.closest(".speedBox, .vjs-playback-rate");
+      if (node.closest("[hidden], [inert]")) return false;
+      for (let ancestor = node; ancestor && ancestor !== player; ancestor = ancestor.parentElement) {
+        if (disabled(ancestor)) return false;
+      }
+      // A collapsed dropdown is normal. A hidden speed control means the page
+      // does not offer speed selection; do not expose or enable that control.
+      return getComputedStyle(control).display !== "none" && getComputedStyle(control).visibility !== "hidden" && !control.matches(".vjs-hidden, [aria-hidden='true']") && getComputedStyle(node).display !== "none";
+    }).map(target => {
+      const text = target.getAttribute("rate") || cleanText(target.querySelector(".vjs-menu-item-text") || target);
+      const match = text.trim().match(/^(?:x\s*)?(\d+(?:\.\d+)?)(?:\s*(?:x|倍(?:速)?))?$/i);
+      return { target, rate: match ? Number(match[1]) : NaN };
+    }).filter(item => Number.isFinite(item.rate) && item.rate >= 1);
+    return candidates.sort((a, b) => b.rate - a.rate)[0] || null;
+  }
+  function selectSpeed(video, action) {
+    const current = fastestSpeed(video);
+    if (!current || current.target !== action.target || current.rate !== action.rate) return false;
+    // Speed dropdowns are commonly hidden until hover. Their existing handlers
+    // keep the player's rate, label and saved options in sync without changing DOM.
+    return dispatchClick(current.target);
   }
   function smartCourseNextAction(root, catalogue, personal) {
     // This learning page groups video/file resources under a knowledge point.
@@ -221,6 +250,9 @@
   }
   function click(node) {
     if (!available(node)) return false;
+    return dispatchClick(node);
+  }
+  function dispatchClick(node) {
     // HTMLElement.click() emits an untrusted PointerEvent in current Chromium,
     // which this course component rejects. Use an explicit MouseEvent consistently.
     return node.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, composed: true, view: window, button: 0, buttons: 0, detail: 1 }));
@@ -238,5 +270,5 @@
     const optionStart = labels[0] ? text.indexOf(labels[0]) : -1;
     return JSON.stringify([heading ? cleanText(heading) : (optionStart >= 0 ? text.slice(0, optionStart) : text.slice(0, 800)), labels]);
   }
-  globalThis.ZhsHelperCore = Object.freeze({ defaults, builtin, normalizeSettings, cleanText, visible, available, video, next, nextAction, options, questionGroups, dialogs, quiz, submitted, submit, close, selected, click, randomChoice, fingerprint });
+  globalThis.ZhsHelperCore = Object.freeze({ defaults, builtin, normalizeSettings, cleanText, visible, available, video, fastestSpeed, selectSpeed, next, nextAction, options, questionGroups, dialogs, quiz, submitted, submit, close, selected, click, randomChoice, fingerprint });
 })();

@@ -256,6 +256,143 @@ test('AI disabled submit button before submission is not treated as completed', 
   await page.close();
 });
 
+async function speedPlayer(page, menu = '<div class="speedBox"><span>X 1.0</span><div class="speedList" style="display:none"><div rate="1.5">X 1.5</div><div rate="3.0">X 3.0</div><div rate="1.0">X 1.0</div><div rate="2.5">X 2.5</div></div></div>') {
+  await page.evaluate(menu => {
+    window.__speedClicks = [];
+    const video = document.querySelector('video');
+    const player = document.createElement('div');
+    player.className = 'able-player-container';
+    video.before(player);
+    player.append(video);
+    player.insertAdjacentHTML('beforeend', menu);
+    player.addEventListener('click', event => {
+      const option = event.target.closest('[rate], .vjs-menu-item');
+      if (!option) return;
+      window.__speedClicks.push({ rate: Number(option.getAttribute('rate') || option.querySelector('.vjs-menu-item-text')?.textContent.replace('x', '')), mouse: event instanceof MouseEvent, pointer: event instanceof PointerEvent });
+      if (window.__rejectSpeed) return;
+      player.querySelector('video').playbackRate = window.__speedClicks.at(-1).rate;
+      player.querySelector('.speedBox > span')?.replaceChildren(`X ${window.__speedClicks.at(-1).rate}`);
+    });
+  }, menu);
+}
+
+test('highest speed uses the current player hidden menu and explicit MouseEvent only once', async () => {
+  const page = await fixture();
+  await speedPlayer(page);
+  await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<div class="able-player-container"><div class="speedBox"><div class="speedList"><div rate="16">X 16</div></div></div></div><button rate="99">Other setting</button>'));
+  await page.clock.runFor(6000);
+  assert.equal(await page.locator('video').evaluate(video => video.playbackRate), 3);
+  assert.deepEqual(await page.evaluate(() => window.__speedClicks), [{ rate: 3, mouse: true, pointer: false }]);
+  assert.equal(await page.locator('.speedBox > span').textContent(), 'X 3');
+  assert.match((await status(page)).speedStatus, /已选择最高倍速 3/);
+  assert.equal((await status(page)).settings.fastestSpeed, true);
+  await page.close();
+});
+
+test('Video.js speed menu parses numeric rates rather than order or selected accessibility text', async () => {
+  const page = await fixture();
+  await speedPlayer(page, '<div class="vjs-playback-rate"><div class="vjs-menu" style="display:none"><div class="vjs-menu-item"><span class="vjs-menu-item-text">2x</span><span class="vjs-control-text"> selected</span></div><div class="vjs-menu-item"><span class="vjs-menu-item-text">1.25x</span></div></div></div>');
+  await page.clock.runFor(2500);
+  assert.equal(await page.locator('video').evaluate(video => video.playbackRate), 2);
+  await page.close();
+});
+
+test('speed setting persists through the page panel and respects paused helper and disabled feature', async () => {
+  const page = await fixture({ enabled: false });
+  await speedPlayer(page);
+  await page.clock.runFor(3000);
+  assert.deepEqual(await page.evaluate(() => window.__speedClicks), []);
+  await page.evaluate(() => window.__update({ enabled: true, fastestSpeed: false }));
+  await page.clock.runFor(3000);
+  assert.deepEqual(await page.evaluate(() => window.__speedClicks), []);
+  const toggle = page.locator('[data-zhs-helper]').locator('#fastestSpeed');
+  await toggle.check();
+  await page.clock.runFor(2500);
+  assert.equal(await page.locator('video').evaluate(video => video.playbackRate), 3);
+  assert.equal(await page.evaluate(() => window.__settings.fastestSpeed), true);
+  await toggle.uncheck();
+  await page.evaluate(() => { document.querySelector('video').playbackRate = 1.25; });
+  await page.clock.runFor(6000);
+  assert.equal(await page.locator('video').evaluate(video => video.playbackRate), 1.25);
+  assert.equal(await page.evaluate(() => window.__settings.fastestSpeed), false);
+  await page.close();
+});
+
+test('highest speed is reapplied after source changes and video element replacement', async () => {
+  const page = await fixture();
+  await speedPlayer(page);
+  await page.clock.runFor(2500);
+  await page.evaluate(() => { window.__video.currentSrc = 'https://media.example/lesson-2.mp4'; document.querySelector('video').playbackRate = 1; });
+  await page.clock.runFor(2500);
+  await page.evaluate(() => {
+    const old = document.querySelector('video');
+    const video = old.cloneNode();
+    for (const key of ['paused', 'ended', 'currentSrc']) Object.defineProperty(video, key, { get: () => window.__video[key], configurable: true });
+    video.play = async () => { window.__plays++; window.__video.paused = false; };
+    old.replaceWith(video);
+  });
+  await page.clock.runFor(2500);
+  assert.equal(await page.locator('video').evaluate(video => video.playbackRate), 3);
+  assert.equal(await page.evaluate(() => window.__speedClicks.length), 3);
+  await page.close();
+});
+
+test('disabled and hidden speed controls are ignored without inventing faster rates', async () => {
+  const page = await fixture();
+  await speedPlayer(page, '<div class="speedBox"><div class="speedList"><div rate="16" aria-disabled="true">X 16</div><button rate="8" disabled>X 8</button><div rate="4" hidden>X 4</div><div rate="3" style="display:none">X 3</div><div rate="2">X 2</div><div rate="bogus">Invalid</div></div></div>');
+  await page.clock.runFor(2500);
+  assert.equal(await page.locator('video').evaluate(video => video.playbackRate), 2);
+  await page.evaluate(() => { document.querySelector('.speedBox').style.display = 'none'; document.querySelector('video').playbackRate = 1; });
+  await page.clock.runFor(6000);
+  assert.equal(await page.locator('video').evaluate(video => video.playbackRate), 1);
+  assert.equal(await page.evaluate(() => window.__speedClicks.length), 1);
+  assert.match((await status(page)).speedStatus, /未识别到可用的倍速菜单/);
+  await page.close();
+});
+
+test('unavailable menu preserves speed and is discovered when the player loads it later', async () => {
+  const page = await fixture();
+  await page.evaluate(() => { document.querySelector('video').playbackRate = 1.25; });
+  await page.clock.runFor(2500);
+  assert.equal(await page.locator('video').evaluate(video => video.playbackRate), 1.25);
+  assert.match((await status(page)).speedStatus, /保留当前速度/);
+  await speedPlayer(page);
+  await page.clock.runFor(2500);
+  assert.equal(await page.locator('video').evaluate(video => video.playbackRate), 3);
+  await page.close();
+});
+
+test('speed failures stop after three attempts without blocking playback or next lesson', async () => {
+  const page = await fixture({}, '<button class="next_lesson_btn">下一节</button>');
+  await speedPlayer(page);
+  await page.evaluate(() => { window.__rejectSpeed = true; });
+  await page.clock.runFor(2000);
+  await page.evaluate(() => { const list = document.querySelector('.speedList'); list.replaceWith(list.cloneNode(true)); });
+  await page.clock.runFor(28000);
+  assert.equal(await page.evaluate(() => window.__speedClicks.length), 3);
+  assert.match((await status(page)).speedStatus, /已停止重试/);
+  assert.equal((await status(page)).error, '');
+  assert.equal(await page.evaluate(() => window.__plays), 1);
+  await page.evaluate(() => { window.__video.ended = true; });
+  await page.clock.runFor(3000);
+  assert.equal(await page.evaluate(() => window.__next), 1);
+  await page.close();
+});
+
+test('speed selection waits for dialogs and stops for ended video or invalidated context', async () => {
+  const page = await fixture({}, '<div role="dialog">请手动处理</div>');
+  await speedPlayer(page);
+  await page.clock.runFor(3000);
+  assert.equal(await page.evaluate(() => window.__speedClicks.length), 0);
+  await page.evaluate(() => { document.querySelector('[role="dialog"]').remove(); window.__video.ended = true; });
+  await page.clock.runFor(3000);
+  assert.equal(await page.evaluate(() => window.__speedClicks.length), 0);
+  await page.evaluate(() => { window.__video.ended = false; delete chrome.runtime.id; });
+  await page.clock.runFor(6000);
+  assert.equal(await page.evaluate(() => window.__speedClicks.length), 0);
+  await page.close();
+});
+
 test('disabled by default: no play, answer or next; start respects autoPlay=false', async () => {
   const page = await fixture({ enabled: false, autoPlay: false }, '<button class="next_lesson_btn">下一节</button>');
   await page.clock.runFor(6000);
@@ -862,9 +999,12 @@ test('popup validates selectors and persists settings', async () => {
   assert.match(await page.locator('#error').textContent(), /选择器无效/);
   await page.locator('#video').fill('video');
   await page.locator('#enabled').check();
+  assert.equal(await page.locator('#fastestSpeed').isChecked(), true);
+  await page.locator('#fastestSpeed').uncheck();
   await page.locator('#randomAnswer').check();
   await page.getByRole('button', { name: '保存设置' }).click();
   assert.equal(await page.evaluate(() => window.__saved.zhsHelperSettings.randomAnswer), true);
+  assert.equal(await page.evaluate(() => window.__saved.zhsHelperSettings.fastestSpeed), false);
   assert.deepEqual(errors, []);
   fs.mkdirSync(path.join(root, 'test-results'), { recursive: true });
   await page.screenshot({ path: path.join(root, 'test-results/popup.png'), fullPage: true });
