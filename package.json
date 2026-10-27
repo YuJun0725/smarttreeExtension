@@ -1,0 +1,13 @@
+{
+  "name": "zhihuishu-video-helper",
+  "version": "0.1.7",
+  "private": true,
+  "description": "智慧树视频页面操作助手",
+  "scripts": {
+    "test": "node --test tests/browser.test.cjs",
+    "check": "node --check extension/core.js && node --check extension/content.js && node --check extension/popup.js && node --check extension/background.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  }
+}

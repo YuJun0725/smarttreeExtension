@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>智慧树视频助手</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <header><span class="mark">树</span><div><h1>智慧树视频助手</h1><p>播放 · 连播 · 弹窗处理</p></div></header>
+  <section class="status"><span id="badge">状态</span><p id="status" role="status">正在连接当前页面…</p></section>
+  <form id="settings">
+    <label class="switch primary"><span>启动助手</span><input id="enabled" type="checkbox"></label>
+    <label class="switch"><span>自动播放／暂停后续播</span><input id="autoPlay" type="checkbox"></label>
+    <label class="switch"><span>播完切换下一节</span><input id="autoNext" type="checkbox"></label>
+    <label class="switch"><span>弹窗随机作答<small>随机选择一个选项并提交，不保证正确</small></span><input id="randomAnswer" type="checkbox"></label>
+    <label class="switch"><span>自动播放时静音<small>有助于满足浏览器的自动播放条件</small></span><input id="muted" type="checkbox"></label>
+    <label class="delay">操作间隔（毫秒）<input id="actionDelay" type="number" min="500" max="10000" step="100" required></label>
+    <details><summary>页面适配设置</summary><p class="hint">留空使用内置识别。选择器仅作用于当前页面；选项、提交和关闭按钮限定在题目弹窗内。</p>
+      <label>视频<input id="video" type="text" placeholder="video" spellcheck="false"></label>
+      <label>下一节按钮<input id="next" type="text" placeholder=".next_lesson_btn" spellcheck="false"></label>
+      <label>题目弹窗<input id="quiz" type="text" placeholder=".el-dialog" spellcheck="false"></label>
+      <label>题目选项<input id="option" type="text" placeholder="label.el-radio" spellcheck="false"></label>
+      <label>提交按钮<input id="submit" type="text" placeholder=".answer-submit" spellcheck="false"></label>
+      <label>继续／关闭按钮<input id="close" type="text" placeholder=".continue-button" spellcheck="false"></label>
+    </details>
+    <p id="error" class="error" role="alert"></p><button type="submit">保存设置</button><span id="saved" role="status"></span>
+  </form>
+  <details class="logs"><summary>当前页面运行记录</summary><ol id="logs"></ol></details>
+  <footer>安装后请刷新已打开的课程页面。设置对所有智慧树标签页生效。</footer>
+  <script src="core.js"></script><script src="popup.js"></script>
+</body></html>

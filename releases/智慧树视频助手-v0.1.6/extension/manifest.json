@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "智慧树视频助手",
+  "version": "0.1.6",
+  "description": "视频自动播放、播完切换下一节，以及可选的弹窗随机作答。",
+  "permissions": ["storage", "activeTab"],
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_title": "智慧树视频助手",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [{
+    "matches": ["https://*.zhihuishu.com/*", "http://*.zhihuishu.com/*"],
+    "js": ["core.js", "content.js"],
+    "run_at": "document_idle",
+    "all_frames": true,
+    "match_about_blank": true
+  }]
+}
